@@ -1,0 +1,10 @@
+streamlit
+requests
+python-dotenv
+PyPDF2
+clipboard
+langchain
+langchain_community 
+langchain-google-genai
+google-generativeai
+FAISS
