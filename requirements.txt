@@ -8,3 +8,4 @@ langchain-community==0.3.14
 langchain-google-genai==2.0.8
 google-generativeai==0.8.3
 faiss-cpu==1.9.0.post1
+markdown==3.7
