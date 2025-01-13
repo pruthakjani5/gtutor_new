@@ -552,6 +552,58 @@ SCOPES = [
 if 'user' not in st.session_state:
     st.session_state.user = None
 
+def get_redirect_uri():
+    """Get the appropriate redirect URI based on the current environment"""
+    # In Streamlit Cloud, we'll use the deployed URL
+    if 'STREAMLIT_DEPLOYED' in os.environ:
+        return "https://gtutor.streamlit.app/_stcore/callback"
+    # For local development
+    return "http://localhost:8501/"
+
+def handle_oauth_callback():
+    """Handle OAuth callback and user authentication"""
+    # Debug information with safer URL access
+    debug_info = {
+        "Query Params": dict(st.query_params),
+        "Is Local": 'STREAMLIT_DEPLOYED' not in os.environ,
+        "Redirect URI": get_redirect_uri()
+    }
+    
+    with st.sidebar.expander("Debug Info"):
+        st.write(debug_info)
+    
+    # Use the new st.query_params instead of experimental_get_query_params
+    query_params = st.query_params
+    
+    if 'code' in query_params:
+        try:
+            flow = create_oauth_flow()
+            
+            # Construct authorization response URL
+            scheme = 'https' if 'STREAMLIT_DEPLOYED' in os.environ else 'http'
+            host = 'gtutor.streamlit.app' if 'STREAMLIT_DEPLOYED' in os.environ else 'localhost:8501'
+            authorization_response = f"{scheme}://{host}/?{query_params}"
+            
+            # Fetch the token
+            flow.fetch_token(
+                authorization_response=authorization_response
+            )
+            
+            credentials = flow.credentials
+            user_info = get_user_info(credentials)
+            
+            # Store user info in session state
+            st.session_state.user = user_info
+            st.session_state.credentials = credentials_to_dict(credentials)
+            
+            # Clear URL parameters
+            st.query_params.clear()
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Authentication failed: {str(e)}")
+            st.error("Please check your Google Cloud Console settings and ensure the redirect URIs are configured correctly.")
+
 def create_oauth_flow():
     """Create OAuth 2.0 flow instance"""
     client_config = {
@@ -568,21 +620,9 @@ def create_oauth_flow():
     flow = Flow.from_client_config(
         client_config,
         scopes=SCOPES,
-        redirect_uri=REDIRECT_URIS[0]  # Use the first redirect URI by default
+        redirect_uri=get_redirect_uri()  # Use the environment-aware redirect URI
     )
     return flow
-
-def get_redirect_uri():
-    """Get the appropriate redirect URI based on the current environment"""
-    current_url = st.runtime.get_instance().get_current_page_url()
-    
-    if "localhost" in current_url:
-        return "http://localhost:8501/"
-    elif "gtutor.streamlit.app" in current_url:
-        return "https://gtutor.streamlit.app/_stcore/callback"
-    else:
-        # Default to Streamlit Cloud URL
-        return "https://gtutor.streamlit.app/_stcore/callback"
 
 def login():
     """Initiate Google OAuth login flow"""
@@ -634,44 +674,44 @@ def login():
     except Exception as e:
         st.error(f"Failed to create authorization URL: {str(e)}")
 
-def handle_oauth_callback():
-    """Handle OAuth callback and user authentication"""
-    # Debug information
-    st.sidebar.expander("Debug Info").write({
-        "Current URL": st.runtime.get_instance().get_current_page_url(),
-        "Query Params": dict(st.query_params),
-        "Is Local": "localhost" in st.runtime.get_instance().get_current_page_url(),
-        "Redirect URI": get_redirect_uri()
-    })
-    # Use the new st.query_params instead of experimental_get_query_params
-    query_params = st.query_params
+# def handle_oauth_callback():
+#     """Handle OAuth callback and user authentication"""
+#     # Debug information
+#     st.sidebar.expander("Debug Info").write({
+#         "Current URL": st.runtime.get_instance().get_current_page_url(),
+#         "Query Params": dict(st.query_params),
+#         "Is Local": "localhost" in st.runtime.get_instance().get_current_page_url(),
+#         "Redirect URI": get_redirect_uri()
+#     })
+#     # Use the new st.query_params instead of experimental_get_query_params
+#     query_params = st.query_params
     
-    if 'code' in query_params:
-        try:
-            flow = create_oauth_flow()
+#     if 'code' in query_params:
+#         try:
+#             flow = create_oauth_flow()
             
-            # Build the authorization response URL
-            current_url = st.runtime.get_instance().get_current_page_url()
+#             # Build the authorization response URL
+#             current_url = st.runtime.get_instance().get_current_page_url()
             
-            # Fetch the token
-            flow.fetch_token(
-                authorization_response=current_url
-            )
+#             # Fetch the token
+#             flow.fetch_token(
+#                 authorization_response=current_url
+#             )
             
-            credentials = flow.credentials
-            user_info = get_user_info(credentials)
+#             credentials = flow.credentials
+#             user_info = get_user_info(credentials)
             
-            # Store user info in session state
-            st.session_state.user = user_info
-            st.session_state.credentials = credentials_to_dict(credentials)
+#             # Store user info in session state
+#             st.session_state.user = user_info
+#             st.session_state.credentials = credentials_to_dict(credentials)
             
-            # Clear URL parameters
-            st.query_params.clear()
-            st.rerun()
+#             # Clear URL parameters
+#             st.query_params.clear()
+#             st.rerun()
             
-        except Exception as e:
-            st.error(f"Authentication failed: {str(e)}")
-            st.error("Please check your Google Cloud Console settings and ensure the redirect URIs are configured correctly.")
+#         except Exception as e:
+#             st.error(f"Authentication failed: {str(e)}")
+#             st.error("Please check your Google Cloud Console settings and ensure the redirect URIs are configured correctly.")
 
 def get_user_info(credentials):
     """Get user information from Google"""
