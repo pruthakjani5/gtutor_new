@@ -452,7 +452,7 @@ if selected_subject:
 
     # Clear database button
     if st.sidebar.button(f"Clear {selected_subject} Database"):
-        db.delete(delete_all=True)
+        # db.delete(delete_all=True)
         # Reinitialize the vector store with an empty text
         embeddings = get_embeddings()
         vector_stores[selected_subject] = FAISS.from_texts(texts=["Initial text"], embedding=embeddings)
