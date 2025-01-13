@@ -560,8 +560,18 @@ REDIRECT_URIS = [
 ]
 
 def is_production():
-    """Check if the app is running in production"""
-    return os.environ.get('STREAMLIT_DEPLOYED') == 'true' or 'STREAMLIT_RUNTIME_BACKEND' in os.environ
+    """Check if the app is running in production using URL-based detection"""
+    try:
+        # Get the current URL from Streamlit's internal state
+        current_url = st.runtime.get_instance().get_current_page_url()
+        return "gtutor.streamlit.app" in current_url
+    except:
+        # Fallback detection methods
+        return (
+            'STREAMLIT_SHARING_PORT' in os.environ or  # Check for Streamlit Cloud
+            'STREAMLIT_SERVER_PORT' in os.environ or   # Another production indicator
+            'STREAMLIT_SERVER_HEADLESS' in os.environ  # Common in cloud deployments
+        )
 
 def get_redirect_uri():
     """Get the appropriate redirect URI based on the current environment"""
@@ -569,14 +579,22 @@ def get_redirect_uri():
         return "https://gtutor.streamlit.app/_stcore/callback"
     return "http://localhost:8501/"
 
+def get_base_url():
+    """Get the base URL for the current environment"""
+    if is_production():
+        return "https://gtutor.streamlit.app"
+    return "http://localhost:8501"
+
 def handle_oauth_callback():
     """Handle OAuth callback and user authentication"""
-    # Add debug information
+    # Add comprehensive debug information
     debug_info = {
         "Query Params": dict(st.query_params),
         "Is Production": is_production(),
         "Redirect URI": get_redirect_uri(),
-        "Environment Vars": {k: v for k, v in os.environ.items() if 'STREAMLIT' in k}
+        "Base URL": get_base_url(),
+        "Environment Vars": {k: v for k, v in os.environ.items() if k.startswith('STREAMLIT')},
+        "Current URL": st.runtime.get_instance().get_current_page_url() if hasattr(st.runtime, 'get_instance') else None
     }
     
     with st.sidebar.expander("Debug Info"):
@@ -589,17 +607,13 @@ def handle_oauth_callback():
         try:
             flow = create_oauth_flow()
             
-            # Construct the full authorization response URL
-            if is_production():
-                scheme = 'https'
-                host = 'gtutor.streamlit.app'
-            else:
-                scheme = 'http'
-                host = 'localhost:8501'
-            
-            # Build the authorization URL with all query parameters
+            # Build the full authorization response URL
+            base_url = get_base_url()
             query_string = '&'.join([f"{k}={v}" for k, v in query_params.items()])
-            authorization_response = f"{scheme}://{host}/?{query_string}"
+            authorization_response = f"{base_url}/?{query_string}"
+            
+            # Log the authorization URL for debugging
+            st.sidebar.write("Authorization Response URL:", authorization_response)
             
             # Exchange the authorization code for tokens
             flow.fetch_token(
@@ -611,7 +625,6 @@ def handle_oauth_callback():
             user_info = get_user_info(credentials)
             
             if user_info:
-                # Store user info and credentials in session state
                 st.session_state.user = user_info
                 st.session_state.credentials = credentials_to_dict(credentials)
                 
@@ -623,17 +636,24 @@ def handle_oauth_callback():
             
         except Exception as e:
             st.error(f"Authentication failed: {str(e)}")
-            st.error("Please ensure the Google Cloud Console OAuth configuration matches the redirect URIs")
+            st.error("Detailed error information for debugging:", str(e.__class__.__name__))
 
 def create_oauth_flow():
-    """Create OAuth 2.0 flow instance with proper configuration"""
+    """Create OAuth 2.0 flow instance with environment-aware configuration"""
+    if not GOOGLE_CLIENT_ID or not GOOGLE_CLIENT_SECRET:
+        raise ValueError("Missing Google OAuth credentials. Please check your environment variables.")
+    
     client_config = {
         "web": {
             "client_id": GOOGLE_CLIENT_ID,
             "client_secret": GOOGLE_CLIENT_SECRET,
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": REDIRECT_URIS,
+            "redirect_uris": [
+                "http://localhost:8501/",
+                "https://gtutor.streamlit.app/",
+                "https://gtutor.streamlit.app/_stcore/callback"
+            ],
             "javascript_origins": [
                 "http://localhost:8501",
                 "https://gtutor.streamlit.app"
@@ -641,16 +661,16 @@ def create_oauth_flow():
         }
     }
     
+    # Create flow with the appropriate redirect URI
     flow = Flow.from_client_config(
         client_config,
         scopes=SCOPES,
         redirect_uri=get_redirect_uri()
     )
-    
     return flow
 
 def login():
-    """Initiate Google OAuth login flow with proper state handling"""
+    """Initiate Google OAuth login flow with environment awareness"""
     try:
         flow = create_oauth_flow()
         authorization_url, state = flow.authorization_url(
@@ -659,10 +679,10 @@ def login():
             prompt='consent'
         )
         
-        # Store the state in session
+        # Store state in session
         st.session_state.oauth_state = state
         
-        # Create the sign-in button with the correct authorization URL
+        # Create the sign-in button with dynamic URL
         st.markdown('''
             <style>
             .google-btn {
@@ -689,6 +709,14 @@ def login():
             </style>
         ''', unsafe_allow_html=True)
         
+        # Add debug information to the authorization URL
+        debug_params = {
+            'redirect_uri': get_redirect_uri(),
+            'is_production': str(is_production()).lower(),
+            'base_url': get_base_url()
+        }
+        authorization_url += '&' + '&'.join([f"debug_{k}={v}" for k, v in debug_params.items()])
+        
         st.markdown(f'''
             <a href="{authorization_url}" target="_self">
                 <button class="google-btn">
@@ -697,8 +725,14 @@ def login():
                 </button>
             </a>
         ''', unsafe_allow_html=True)
+        
+        # Display current environment info
+        st.sidebar.write("Current Environment:", "Production" if is_production() else "Local")
+        st.sidebar.write("Redirect URI:", get_redirect_uri())
+        
     except Exception as e:
         st.error(f"Failed to create authorization URL: {str(e)}")
+        st.error("Detailed error information:", str(e.__class__.__name__))
 
 def get_user_info(credentials):
     """Get user information from Google"""
@@ -737,6 +771,11 @@ def main():
     
     # Handle OAuth callback
     handle_oauth_callback()
+    
+    if not st.session_state.get('user'):
+        st.write("Please sign in to use GTUtor")
+        login()
+        return
     
     # Authentication status
     if st.session_state.user:
