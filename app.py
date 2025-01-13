@@ -453,11 +453,16 @@ if selected_subject:
     # Clear database button
     if st.sidebar.button(f"Clear {selected_subject} Database"):
         db.delete(delete_all=True)
+        # Reinitialize the vector store with an empty text
+        embeddings = get_embeddings()
+        vector_stores[selected_subject] = FAISS.from_texts(texts=["Initial text"], embedding=embeddings)
+        save_vectorstore(selected_subject)
+        # Clear chat history
         st.session_state.chat_histories[selected_subject] = []
         save_chat_history(selected_subject, [])
         st.sidebar.success(f"{selected_subject} database and chat history cleared successfully.")
         st.rerun()
-
+    
     # Delete subject button
     if st.sidebar.button(f"Delete {selected_subject} Subject"):
         # Remove from subjects list
