@@ -506,7 +506,6 @@
 # </style>
 # """, unsafe_allow_html=True)
 
-
 import streamlit as st
 import requests
 import os
@@ -531,8 +530,6 @@ from pathlib import Path
 # Load environment variables
 load_dotenv()
 
-st.set_page_config(page_title="GTUtor", page_icon="🎓", layout="wide")
-
 # OAuth 2.0 Configuration
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -540,7 +537,9 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 # Define multiple redirect URIs for different environments
 REDIRECT_URIS = [
     "http://localhost:8501/",  # Local development
-    "https://gtutor.streamlit.app/"  # Production URL (replace with actual URL)
+    "http://localhost:8501/callback",  # Local with callback path
+    "https://gtutor.streamlit.app/",  # Streamlit Cloud URL
+    "https://gtutor.streamlit.app/_stcore/callback",  # Streamlit Cloud callback
 ]
 
 # OAuth2 Scopes
@@ -575,9 +574,15 @@ def create_oauth_flow():
 
 def get_redirect_uri():
     """Get the appropriate redirect URI based on the current environment"""
-    # You can add logic here to determine the correct redirect URI
-    # based on your environment (local vs. production)
-    return REDIRECT_URIS[0]
+    current_url = st.runtime.get_instance().get_current_page_url()
+    
+    if "localhost" in current_url:
+        return "http://localhost:8501/"
+    elif "gtutor.streamlit.app" in current_url:
+        return "https://gtutor.streamlit.app/_stcore/callback"
+    else:
+        # Default to Streamlit Cloud URL
+        return "https://gtutor.streamlit.app/_stcore/callback"
 
 def login():
     """Initiate Google OAuth login flow"""
@@ -620,6 +625,7 @@ def login():
         st.markdown(f'''
             <a href="{authorization_url}" target="_self">
                 <button class="google-btn">
+                    <img src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg"/>
                     Sign in with Google
                 </button>
             </a>
@@ -630,6 +636,13 @@ def login():
 
 def handle_oauth_callback():
     """Handle OAuth callback and user authentication"""
+    # Debug information
+    st.sidebar.expander("Debug Info").write({
+        "Current URL": st.runtime.get_instance().get_current_page_url(),
+        "Query Params": dict(st.query_params),
+        "Is Local": "localhost" in st.runtime.get_instance().get_current_page_url(),
+        "Redirect URI": get_redirect_uri()
+    })
     # Use the new st.query_params instead of experimental_get_query_params
     query_params = st.query_params
     
@@ -712,31 +725,6 @@ def main():
                 st.session_state.user = None
                 st.session_state.credentials = None
                 st.rerun()
-    else:
-        st.sidebar.write("Please sign in to use GTUtor")
-        login()
-        return
-
-    # Your existing GTUtor code here, wrapped with @auth_required decorator
-    if st.session_state.user:
-        show_gtutor_interface()
-
-# Modify your main Streamlit UI to include authentication
-def main():
-    # st.set_page_config(page_title="GTUtor", page_icon="🎓", layout="wide")
-    
-    # Handle OAuth callback
-    handle_oauth_callback()
-    
-    # Authentication status
-    if st.session_state.user:
-        user_info = st.session_state.user
-        st.sidebar.write(f"Welcome, {user_info['name']}!")
-        st.sidebar.image(user_info['picture'], width=50)
-        if st.sidebar.button("Sign Out"):
-            st.session_state.user = None
-            st.session_state.credentials = None
-            st.rerun()
     else:
         st.sidebar.write("Please sign in to use GTUtor")
         login()
@@ -907,25 +895,6 @@ def generate_answer(prompt: str) -> str:
     except Exception as e:
         st.error(f"Error generating answer: {str(e)}")
         return None
-
-# def make_rag_prompt(query: str, relevant_passages: List[str], subject: str, chat_history: List[Dict]) -> str:
-#     """Construct RAG prompt"""
-#     passages_text = "\n".join(f"PASSAGE {i+1}: {p}" for i, p in enumerate(relevant_passages))
-#     history_text = "\n".join([f"Human: {turn['human']}\nAssistant: {turn['ai']}" for turn in chat_history[-5:]])
-    
-#     return f"""You are GTUtor, a helpful and informative AI assistant specializing in {subject} for GTU students.
-# Use the provided passages and your knowledge to give comprehensive answers.
-# If the passages don't contain relevant information, use your general knowledge.
-
-# Chat History:
-# {history_text}
-
-# Reference Passages:
-# {passages_text}
-
-# QUESTION: '{query}'
-
-# ANSWER:"""
 
 def make_rag_prompt(query: str, relevant_passages: List[str], subject: str, chat_history: List[Dict]):
     escaped_passages = [p.replace("'", "").replace('"', "").replace("\n", " ") for p in relevant_passages]
