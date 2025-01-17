@@ -620,8 +620,9 @@ if st.session_state.query:
                 st.markdown(f'<div class="chat-message bot"><div class="avatar"><img src="https://img.freepik.com/premium-vector/ai-logo-template-vector-with-white-background_1023984-15069.jpg"/></div><div class="message">{answer_html}</div></div>', unsafe_allow_html=True)
                 # Copy buttons for the new conversation
                 cols = st.columns(2)
-                cols[0].button("Copy Question", key="copy_current_q", on_click=lambda: clipboard.copy(query))
-                cols[1].button("Copy Answer", key="copy_current_a", on_click=lambda: clipboard.copy(answer))
+                # cols[0].button("Copy Question", key="copy_current_q", on_click=lambda: clipboard.copy(query))
+                # cols[1].button("Copy Answer", key="copy_current_a", on_click=lambda: clipboard.copy(answer))
+                display_copy_buttons(turn["human"], turn["ai"], 0)
                 
             # Update chat history
             if selected_subject:
