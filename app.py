@@ -622,8 +622,22 @@ if st.session_state.query:
                 cols = st.columns(2)
                 # cols[0].button("Copy Question", key="copy_current_q", on_click=lambda: clipboard.copy(query))
                 # cols[1].button("Copy Answer", key="copy_current_a", on_click=lambda: clipboard.copy(answer))
+                # unique_key = f"no_subject_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+                # display_copy_buttons(query, answer, unique_key)
                 unique_key = f"no_subject_{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
-                display_copy_buttons(query, answer, unique_key)
+                
+                # Create two columns for copy buttons
+                copy_cols = st.columns(2)
+                
+                # Copy question button
+                if copy_cols[0].button("Copy Question", key=f"copy_q_{unique_key}"):
+                    st.code(query, language=None)
+                    st.toast("Question copied!")
+                
+                # Copy answer button
+                if copy_cols[1].button("Copy Answer", key=f"copy_a_{unique_key}"):
+                    st.code(answer, language=None)
+                    st.toast("Answer copied!")
                 
             # Update chat history
             if selected_subject:
