@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 import os
@@ -631,7 +630,7 @@ if st.session_state.query:
             # After processing, clear the query
             st.session_state.query = ""
             # Force a rerun to clear the input field
-            st.rerun()
+            # st.rerun()
 
 # Add these UI enhancements
 st.markdown("""
