@@ -622,7 +622,7 @@ if st.session_state.query:
                 cols = st.columns(2)
                 # cols[0].button("Copy Question", key="copy_current_q", on_click=lambda: clipboard.copy(query))
                 # cols[1].button("Copy Answer", key="copy_current_a", on_click=lambda: clipboard.copy(answer))
-                display_copy_buttons(turn["human"], turn["ai"], 0)
+                display_copy_buttons(query, answer, 0)
                 
             # Update chat history
             if selected_subject:
