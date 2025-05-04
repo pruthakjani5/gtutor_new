@@ -62,15 +62,15 @@ for parent_folder, sub_folders in data_folders.items():
                 # Subdirectory already exists
                 print(f"{sub_folder} subdirectory already exists")
 
-# # Create directories for storing data - redundant with the code above, but keeping for safety
-# data_folder = os.path.join(os.getcwd(), "gtutor_data")
-# vector_stores_folder = os.path.join(data_folder, "vector_stores")
-# history_folder = os.path.join(data_folder, "chat_histories")
-# try:
-#     os.makedirs(vector_stores_folder, exist_ok=True)
-#     os.makedirs(history_folder, exist_ok=True)
-# except Exception as e:
-#     print(f"Note: {e}")
+# Create directories for storing data - redundant with the code above, but keeping for safety
+data_folder = os.path.join(os.getcwd(), "gtutor_data")
+vector_stores_folder = os.path.join(data_folder, "vector_stores")
+history_folder = os.path.join(data_folder, "chat_histories")
+try:
+    os.makedirs(vector_stores_folder, exist_ok=True)
+    os.makedirs(history_folder, exist_ok=True)
+except Exception as e:
+    print(f"Note: {e}")
 
 # # Create base data folder structure if it doesn't exist
 # for parent_folder, sub_folders in data_folders.items():
