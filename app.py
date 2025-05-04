@@ -45,21 +45,32 @@ data_folders = {
 for parent_folder, sub_folders in data_folders.items():
     parent_path = os.path.join(os.getcwd(), parent_folder)
     if not os.path.exists(parent_path):
-        os.makedirs(parent_path)
-        print(f"Created {parent_folder} directory")
+        try:
+            os.makedirs(parent_path)
+            print(f"Created {parent_folder} directory")
+        except FileExistsError:
+            # Directory already exists (possible race condition)
+            print(f"{parent_folder} directory already exists")
     
     for sub_folder in sub_folders:
         sub_path = os.path.join(parent_path, sub_folder)
         if not os.path.exists(sub_path):
-            os.makedirs(sub_path)
-            print(f"Created {sub_folder} subdirectory")
+            try:
+                os.makedirs(sub_path)
+                print(f"Created {sub_folder} subdirectory")
+            except FileExistsError:
+                # Subdirectory already exists
+                print(f"{sub_folder} subdirectory already exists")
 
-# Create directories for storing data
+# Create directories for storing data - redundant with the code above, but keeping for safety
 data_folder = os.path.join(os.getcwd(), "gtutor_data")
 vector_stores_folder = os.path.join(data_folder, "vector_stores")
 history_folder = os.path.join(data_folder, "chat_histories")
-os.makedirs(vector_stores_folder, exist_ok=True)
-os.makedirs(history_folder, exist_ok=True)
+try:
+    os.makedirs(vector_stores_folder, exist_ok=True)
+    os.makedirs(history_folder, exist_ok=True)
+except Exception as e:
+    print(f"Note: {e}")
 
 # File to store subject names
 subjects_file = os.path.join(data_folder, "subjects.json")
