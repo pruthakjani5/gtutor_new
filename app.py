@@ -42,25 +42,25 @@ data_folders = {
     ]
 }
 
-# for parent_folder, sub_folders in data_folders.items():
-#     parent_path = os.path.join(os.getcwd(), parent_folder)
-#     if not os.path.exists(parent_path):
-#         try:
-#             os.makedirs(parent_path)
-#             print(f"Created {parent_folder} directory")
-#         except FileExistsError:
-#             # Directory already exists (possible race condition)
-#             print(f"{parent_folder} directory already exists")
+for parent_folder, sub_folders in data_folders.items():
+    parent_path = os.path.join(os.getcwd(), parent_folder)
+    if not os.path.exists(parent_path):
+        try:
+            os.makedirs(parent_path)
+            print(f"Created {parent_folder} directory")
+        except FileExistsError:
+            # Directory already exists (possible race condition)
+            print(f"{parent_folder} directory already exists")
     
-#     for sub_folder in sub_folders:
-#         sub_path = os.path.join(parent_path, sub_folder)
-#         if not os.path.exists(sub_path):
-#             try:
-#                 os.makedirs(sub_path)
-#                 print(f"Created {sub_folder} subdirectory")
-#             except FileExistsError:
-#                 # Subdirectory already exists
-#                 print(f"{sub_folder} subdirectory already exists")
+    for sub_folder in sub_folders:
+        sub_path = os.path.join(parent_path, sub_folder)
+        if not os.path.exists(sub_path):
+            try:
+                os.makedirs(sub_path)
+                print(f"Created {sub_folder} subdirectory")
+            except FileExistsError:
+                # Subdirectory already exists
+                print(f"{sub_folder} subdirectory already exists")
 
 # # Create directories for storing data - redundant with the code above, but keeping for safety
 # data_folder = os.path.join(os.getcwd(), "gtutor_data")
@@ -72,14 +72,14 @@ data_folders = {
 # except Exception as e:
 #     print(f"Note: {e}")
 
-# Create base data folder structure if it doesn't exist
-for parent_folder, sub_folders in data_folders.items():
-    parent_path = os.path.join(os.getcwd(), parent_folder)
-    os.makedirs(parent_path, exist_ok=True)
+# # Create base data folder structure if it doesn't exist
+# for parent_folder, sub_folders in data_folders.items():
+#     parent_path = os.path.join(os.getcwd(), parent_folder)
+#     os.makedirs(parent_path, exist_ok=True)
     
-    for sub_folder in sub_folders:
-        sub_path = os.path.join(parent_path, sub_folder)
-        os.makedirs(sub_path, exist_ok=True)
+#     for sub_folder in sub_folders:
+#         sub_path = os.path.join(parent_path, sub_folder)
+#         os.makedirs(sub_path, exist_ok=True)
 
 # File to store subject names
 subjects_file = os.path.join(data_folder, "subjects.json")
