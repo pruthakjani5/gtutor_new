@@ -42,35 +42,44 @@ data_folders = {
     ]
 }
 
+# for parent_folder, sub_folders in data_folders.items():
+#     parent_path = os.path.join(os.getcwd(), parent_folder)
+#     if not os.path.exists(parent_path):
+#         try:
+#             os.makedirs(parent_path)
+#             print(f"Created {parent_folder} directory")
+#         except FileExistsError:
+#             # Directory already exists (possible race condition)
+#             print(f"{parent_folder} directory already exists")
+    
+#     for sub_folder in sub_folders:
+#         sub_path = os.path.join(parent_path, sub_folder)
+#         if not os.path.exists(sub_path):
+#             try:
+#                 os.makedirs(sub_path)
+#                 print(f"Created {sub_folder} subdirectory")
+#             except FileExistsError:
+#                 # Subdirectory already exists
+#                 print(f"{sub_folder} subdirectory already exists")
+
+# # Create directories for storing data - redundant with the code above, but keeping for safety
+# data_folder = os.path.join(os.getcwd(), "gtutor_data")
+# vector_stores_folder = os.path.join(data_folder, "vector_stores")
+# history_folder = os.path.join(data_folder, "chat_histories")
+# try:
+#     os.makedirs(vector_stores_folder, exist_ok=True)
+#     os.makedirs(history_folder, exist_ok=True)
+# except Exception as e:
+#     print(f"Note: {e}")
+
+# Create base data folder structure if it doesn't exist
 for parent_folder, sub_folders in data_folders.items():
     parent_path = os.path.join(os.getcwd(), parent_folder)
-    if not os.path.exists(parent_path):
-        try:
-            os.makedirs(parent_path)
-            print(f"Created {parent_folder} directory")
-        except FileExistsError:
-            # Directory already exists (possible race condition)
-            print(f"{parent_folder} directory already exists")
+    os.makedirs(parent_path, exist_ok=True)
     
     for sub_folder in sub_folders:
         sub_path = os.path.join(parent_path, sub_folder)
-        if not os.path.exists(sub_path):
-            try:
-                os.makedirs(sub_path)
-                print(f"Created {sub_folder} subdirectory")
-            except FileExistsError:
-                # Subdirectory already exists
-                print(f"{sub_folder} subdirectory already exists")
-
-# Create directories for storing data - redundant with the code above, but keeping for safety
-data_folder = os.path.join(os.getcwd(), "gtutor_data")
-vector_stores_folder = os.path.join(data_folder, "vector_stores")
-history_folder = os.path.join(data_folder, "chat_histories")
-try:
-    os.makedirs(vector_stores_folder, exist_ok=True)
-    os.makedirs(history_folder, exist_ok=True)
-except Exception as e:
-    print(f"Note: {e}")
+        os.makedirs(sub_path, exist_ok=True)
 
 # File to store subject names
 subjects_file = os.path.join(data_folder, "subjects.json")
@@ -232,17 +241,53 @@ def get_document_count(subject: str) -> int:
 #     st.success(f"Successfully added {source} to the {subject} vector store.")
 
 # Modify the add_document_to_vectorstore function to track document count
+# def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
+#     """Add document to vector store with document tracking"""
+#     chunks = process_pdf(pdf_content)
+#     embeddings = get_embeddings()
+    
+#     if subject not in vector_stores:
+#         vector_stores[subject] = FAISS.from_texts(texts=chunks, embedding=embeddings)
+#     else:
+#         vector_stores[subject].add_texts(chunks)
+    
+#     # Update document count in metadata
+#     save_vectorstore(subject)
+    
+#     # Update the session state to reflect new document count
+#     if 'document_counts' not in st.session_state:
+#         st.session_state.document_counts = {}
+#     st.session_state.document_counts[subject] = get_document_count(subject)
+    
+#     st.success(f"Successfully added {source} to the {subject} vector store.")
+
 def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
     """Add document to vector store with document tracking"""
     chunks = process_pdf(pdf_content)
+    
+    if not chunks:
+        st.warning(f"No text content extracted from {source}. The PDF might be scanned or contain only images.")
+        return
+    
     embeddings = get_embeddings()
     
-    if subject not in vector_stores:
-        vector_stores[subject] = FAISS.from_texts(texts=chunks, embedding=embeddings)
-    else:
+    # Get existing vector store or create a new one
+    if subject in vector_stores:
+        # Use add_texts to append to the existing vector store
         vector_stores[subject].add_texts(chunks)
+    else:
+        # Create a new vector store if none exists
+        vector_store_path = os.path.join(vector_stores_folder, f"{subject.lower().replace(' ', '_')}.pkl")
+        if os.path.exists(vector_store_path):
+            # Load existing vector store from disk
+            vector_stores[subject] = FAISS.load_local(vector_store_path, embeddings, allow_dangerous_deserialization=True)
+            # Then add new texts
+            vector_stores[subject].add_texts(chunks)
+        else:
+            # Create completely new vector store
+            vector_stores[subject] = FAISS.from_texts(texts=chunks, embedding=embeddings)
     
-    # Update document count in metadata
+    # Save the updated vector store
     save_vectorstore(subject)
     
     # Update the session state to reflect new document count
@@ -250,8 +295,8 @@ def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
         st.session_state.document_counts = {}
     st.session_state.document_counts[subject] = get_document_count(subject)
     
-    st.success(f"Successfully added {source} to the {subject} vector store.")
-    
+    st.success(f"Successfully added {source} to the {subject} vector store. Total documents: {get_document_count(subject)}")
+
 # Add this function to clear the database properly
 def clear_subject_database(subject: str):
     """Clear all data for a subject"""
