@@ -133,13 +133,55 @@ def save_chat_history(subject: str, history: List[Dict]):
     with open(history_file, 'w') as f:
         json.dump(history, f, default=str)
 
+# def download_pdf(url: str) -> bytes:
+#     """Download PDF from URL"""
+#     try:
+#         response = requests.get(url, timeout=10)
+#         response.raise_for_status()
+#         return response.content
+#     except requests.RequestException as e:
+#         st.error(f"Failed to download PDF from {url}. Error: {str(e)}")
+#         return None
+
 def download_pdf(url: str) -> bytes:
-    """Download PDF from URL"""
+    """Download PDF from URL with improved error handling for restricted sites"""
     try:
-        response = requests.get(url, timeout=10)
+        # Add custom headers to mimic a browser request
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+            'Referer': 'https://gtu.ac.in/',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+        }
+        
+        response = requests.get(url, headers=headers, timeout=15)
         response.raise_for_status()
-        return response.content
-    except requests.RequestException as e:
+        
+        # Check if the response contains a PDF
+        content_type = response.headers.get('Content-Type', '').lower()
+        if 'application/pdf' in content_type or url.lower().endswith('.pdf'):
+            return response.content
+        else:
+            st.error(f"The URL doesn't point to a PDF file. Content-Type: {content_type}")
+            return None
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 403:
+            error_message = """
+            ### Access Denied (403 Forbidden)
+            
+            The website is blocking direct access to this PDF. Try these alternatives:
+            1. Download the PDF manually from the GTU website
+            2. Then upload it using the file uploader instead
+            3. Or try a different PDF link that allows direct access
+            """
+            st.error(error_message)
+        else:
+            st.error(f"Failed to download PDF from {url}. Error: {str(e)}")
+        return None
+    except requests.exceptions.RequestException as e:
         st.error(f"Failed to download PDF from {url}. Error: {str(e)}")
         return None
 
