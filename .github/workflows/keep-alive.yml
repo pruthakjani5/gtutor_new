@@ -2,7 +2,7 @@ name: Keep Streamlit App Awake
 
 on:
   schedule:
-    - cron: '0 */10 * * *'  # every 10 hours
+    - cron: '0 */10 * * *'  # Runs every 10 hours
   workflow_dispatch:
 
 jobs:
@@ -10,20 +10,18 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout the repository
         uses: actions/checkout@v3
 
-      - name: Configure Git
+      - name: Set up Git
         run: |
           git config user.name "auto-keep-alive"
           git config user.email "keepalive@bot.com"
 
-      - name: Create empty commit
+      - name: Create an empty commit
         run: |
+          git fetch origin main
+          git checkout main
+          git pull
           git commit --allow-empty -m "keep-alive: wake Streamlit app $(date)"
-      
-      - name: Push changes
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git push origin HEAD:main
+          git push origin main
