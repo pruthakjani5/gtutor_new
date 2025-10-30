@@ -13,6 +13,14 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 import google.generativeai as genai
+from google import genai as google_genai_client  # new gemini client
+from google.api_core.exceptions import ResourceExhausted
+try:
+    # optional local fallback
+    from sentence_transformers import SentenceTransformer
+    _HAS_SENTENCE_TRANSFORMERS = True
+except Exception:
+    _HAS_SENTENCE_TRANSFORMERS = False
 from datetime import datetime
 import re
 import time
@@ -90,65 +98,140 @@ def save_subjects(subjects):
 # Initialize vector stores dictionary
 vector_stores = {}
 
-# Fallback Embeddings implementation to avoid external API when quota is exceeded.
-class FallbackEmbeddings:
-    """
-    Minimal embeddings class with the same interface used by FAISS in this app.
-    It returns deterministic pseudo-embeddings (small numeric vectors) for inputs.
-    This avoids calls to external embedding APIs when quota is exhausted or API key missing.
-    """
-    def __init__(self, dim: int = 1536):
-        self.dim = dim
+class LocalSentenceTransformerEmbeddings:
+    """Local sentence-transformers wrapper used as a fallback (no external API cost)."""
+    def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
+        if not _HAS_SENTENCE_TRANSFORMERS:
+            raise RuntimeError("sentence-transformers is not installed. Install with: pip install sentence-transformers")
+        self.model = SentenceTransformer(model_name)
 
-    def embed_documents(self, texts: List[str]) -> List[List[float]]:
-        # Create deterministic embeddings via hashing so repeats are consistent
-        embeddings = []
-        for t in texts:
-            # Use a simple hash to generate a pseudo-random but deterministic vector
-            h = abs(hash(t)) 
-            rng = np.random.RandomState(h % (2**32))
-            vec = rng.rand(self.dim).astype(float).tolist()
-            embeddings.append(vec)
-        return embeddings
+    def embed_documents(self, texts: list) -> list:
+        # returns list[list[float]]
+        vectors = self.model.encode(texts, convert_to_numpy=True)
+        return vectors.tolist()
 
-    # langchain expects embed_query sometimes; provide a simple implementation
-    def embed_query(self, text: str) -> List[float]:
+    def embed_query(self, text: str) -> list:
         return self.embed_documents([text])[0]
 
-def get_embeddings():
-    """Create a new embeddings object. Use Google embeddings if available and permitted,
-    otherwise fall back to a local deterministic embeddings provider.
-    This avoids app crash when GoogleGemini quota is exhausted."""
-    # If no API key present, return fallback immediately
-    if not GOOGLE_API_KEY:
-        return FallbackEmbeddings(dim=1536)
 
-    try:
-        # Try to instantiate the Google embeddings object
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001",
-            google_api_key=GOOGLE_API_KEY
-        )
-        # Optional sanity test: small dry-run to ensure quota/permissions work.
-        # We do a single very small embed_documents call wrapped in try/except
-        test_text = [""]  # empty string to minimize cost
-        try:
-            _ = embeddings.embed_documents(test_text)
-        except Exception as e:
-            # If embedding test fails (e.g., quota), fallback gracefully
-            st.warning("Google embedding initialization failed (quota or permission). Switching to offline fallback embeddings.")
-            return FallbackEmbeddings(dim=1536)
+class DeterministicFallbackEmbeddings:
+    """
+    Deterministic hashed pseudo embeddings (fast, zero-cost). Used only if sentence-transformers not available.
+    Not semantically strong but keeps app functional.
+    """
+    def __init__(self, dim: int = 384):
+        self.dim = dim
+
+    def _vec_from_text(self, t: str):
+        # deterministic pseudo-random vector from hash
+        h = abs(hash(t))
+        rng = np.random.RandomState(h % (2**32))
+        return rng.rand(self.dim).astype(float).tolist()
+
+    def embed_documents(self, texts: list) -> list:
+        return [self._vec_from_text(t) for t in texts]
+
+    def embed_query(self, text: str) -> list:
+        return self.embed_documents([text])[0]
+
+
+class GeminiEmbeddingWrapper:
+    """
+    Wrapper around the new google genai client embed_content API:
+      client = genai.Client()
+      client.models.embed_content(model="gemini-embedding-001", contents=[...])
+    This wrapper provides embed_documents() and embed_query() to match the langchain embedding interface used in app.
+    """
+    def __init__(self, model: str = "gemini-embedding-001", api_key: str = None, timeout: int = 30):
+        self.model = model
+        # if you already set GOOGLE_API_KEY in env earlier, genai.Client() will pick it up; pass api_key to be explicit
+        if api_key:
+            # if the library supports explicit key configuration; otherwise ensure env var is set
+            # We'll set env for safety
+            import os
+            os.environ["GOOGLE_API_KEY"] = api_key
+        self.client = google_genai_client.Client()
+
+        self.timeout = timeout
+
+    def embed_documents(self, texts: list) -> list:
+        # Batch the input to reasonable sizes (avoid very large requests)
+        # The new embed_content call accepts a list of contents
+        embeddings = []
+        # choose batch size to limit request size; tune as needed
+        batch_size = 32
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i+batch_size]
+            # retry/backoff for transient quota/errors
+            for attempt in range(4):
+                try:
+                    result = self.client.models.embed_content(model=self.model, contents=batch)
+                    # result.embeddings is an iterable of embedding objects (depends on client version)
+                    # convert each embedding to python list of floats
+                    for emb in result.embeddings:
+                        # emb may be a sequence of floats already or an object with .values
+                        if hasattr(emb, "values"):
+                            embeddings.append(list(emb.values))
+                        else:
+                            # assume it's already list-like
+                            embeddings.append(list(emb))
+                    break
+                except ResourceExhausted as e:
+                    # quota exhausted -> re-raise so caller can fallback
+                    raise
+                except Exception as e:
+                    # transient -> backoff and retry
+                    if attempt < 3:
+                        time.sleep(2 ** attempt)
+                        continue
+                    else:
+                        raise
         return embeddings
-    except Exception as e:
-        # Any unexpected error -> fallback
-        st.warning(f"Could not initialize Google embeddings: {str(e)}. Using fallback embeddings.")
-        return FallbackEmbeddings(dim=1536)
+
+    def embed_query(self, text: str) -> list:
+        res = self.embed_documents([text])
+        return res[0] if res else []
+
+
+def get_safe_embeddings_factory(google_api_key: str = None):
+    """
+    Factory that tries to instantiate GeminiEmbeddingWrapper and runs a tiny dry-run to
+    detect quota/permission problems. If that fails, it returns a local fallback (sentence-transformers if available,
+    otherwise deterministic hashed embeddings).
+    """
+    # First try Gemini client if API key present
+    if google_api_key:
+        try:
+            gem = GeminiEmbeddingWrapper(model="gemini-embedding-001", api_key=google_api_key)
+            # dry-run a trivial embedding to detect immediate quota errors
+            try:
+                gem.embed_documents(["__dry_run__"])
+                return gem
+            except ResourceExhausted:
+                # immediate quota problem: return fallback
+                raise
+            except Exception:
+                # any other error -> fallback
+                raise
+        except ResourceExhausted:
+            # propagate re-raise so caller can show a clear message or fallback
+            # we choose to fallback here
+            pass
+        except Exception:
+            # fall through to fallback
+            pass
+
+    # Prefer sentence-transformers (better semantic quality) if available
+    if _HAS_SENTENCE_TRANSFORMERS:
+        return LocalSentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
+    # otherwise deterministic fallback
+    return DeterministicFallbackEmbeddings(dim=384)
 
 def get_or_create_vectorstore(subject: str):
     """Get or create a FAISS vector store for a subject"""
     if subject not in vector_stores:
         vector_store_path = os.path.join(vector_stores_folder, f"{subject.lower().replace(' ', '_')}.pkl")
-        embeddings = get_embeddings()
+        embeddings = get_safe_embeddings_factory(GOOGLE_API_KEY)
         if os.path.exists(vector_store_path):
             try:
                 vector_stores[subject] = FAISS.load_local(vector_store_path, embeddings, allow_dangerous_deserialization=True)
@@ -164,7 +247,7 @@ def get_or_create_vectorstore(subject: str):
                 # If embedding fails due to quota, try again with fallback embeddings
                 st.warning(f"Error creating vectorstore with chosen embeddings: {str(e)}. Retrying with fallback embeddings.")
                 try:
-                    fallback_embeddings = FallbackEmbeddings(dim=1536)
+                    fallback_embeddings = get_safe_embeddings_factory(None)
                     vector_stores[subject] = FAISS.from_texts(texts=["Initial text"], embedding=fallback_embeddings)
                     save_vectorstore(subject)
                     st.info("Vector store created using fallback embeddings. Search quality may be reduced.")
@@ -274,7 +357,7 @@ def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
         st.warning(f"No text content extracted from {source}. The PDF might be scanned or contain only images.")
         return
     
-    embeddings = get_embeddings()
+    embeddings = get_safe_embeddings_factory(GOOGLE_API_KEY)
     
     # Get existing vector store or create a new one
     if subject in vector_stores:
@@ -284,7 +367,7 @@ def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
             # If adding fails (likely embedding error), retry with fallback embeddings
             st.warning(f"Failed to add texts using current embeddings: {e}. Retrying with fallback embeddings.")
             try:
-                fallback = FallbackEmbeddings(dim=1536)
+                fallback = get_safe_embeddings_factory(None)
                 # Recreate the vector store content by loading existing vectors and adding new ones using fallback embeddings.
                 # Simpler approach: create a new FAISS index from combined texts (this might lose previous vectors if they used different embeddings)
                 existing_texts = ["Initial text"]
@@ -302,7 +385,7 @@ def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
         vector_store_path = os.path.join(vector_stores_folder, f"{subject.lower().replace(' ', '_')}.pkl")
         try:
             if os.path.exists(vector_store_path):
-                embeddings = get_embeddings()
+                embeddings = get_safe_embeddings_factory(GOOGLE_API_KEY)
                 vector_stores[subject] = FAISS.load_local(vector_store_path, embeddings, allow_dangerous_deserialization=True)
                 vector_stores[subject].add_texts(chunks)
             else:
@@ -310,7 +393,7 @@ def add_document_to_vectorstore(pdf_content: bytes, source: str, subject: str):
                     vector_stores[subject] = FAISS.from_texts(texts=chunks, embedding=embeddings)
                 except Exception as e:
                     st.warning(f"Embedding failed while creating vectorstore: {e}. Using fallback embeddings.")
-                    fallback = FallbackEmbeddings(dim=1536)
+                    fallback = get_safe_embeddings_factory(None)
                     vector_stores[subject] = FAISS.from_texts(texts=chunks, embedding=fallback)
         except Exception as e:
             st.error(f"Failed to add document to vectorstore: {e}")
@@ -333,7 +416,7 @@ def clear_subject_database(subject: str):
     """Clear all data for a subject"""
     try:
         # Clear vector store
-        embeddings = get_embeddings()
+        embeddings = get_safe_embeddings_factory(GOOGLE_API_KEY)
         vector_stores[subject] = FAISS.from_texts(texts=["Initial text"], embedding=embeddings)
         save_vectorstore(subject)
         
@@ -1263,7 +1346,7 @@ if selected_subject:
     st.sidebar.write(f"Total documents in {selected_subject} database: {total_docs}")
 
     if st.sidebar.button(f"Clear {selected_subject} Database"):
-        embeddings = get_embeddings()
+        embeddings = get_safe_embeddings_factory(GOOGLE_API_KEY)
         vector_stores[selected_subject] = FAISS.from_texts(texts=["Initial text"], embedding=embeddings)
         save_vectorstore(selected_subject)
         st.session_state.chat_histories[selected_subject] = []
