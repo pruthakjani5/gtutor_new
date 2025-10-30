@@ -126,7 +126,7 @@ def get_embeddings():
     try:
         # Try to instantiate the Google embeddings object
         embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
+            model="models/gemini-embedding-001",
             google_api_key=GOOGLE_API_KEY
         )
         # Optional sanity test: small dry-run to ensure quota/permissions work.
